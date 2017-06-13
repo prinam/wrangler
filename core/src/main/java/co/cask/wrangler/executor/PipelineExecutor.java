@@ -103,6 +103,12 @@ public final class PipelineExecutor implements Pipeline<Record, StructuredRecord
             if (newRecords.size() < 1) {
               break;
             }
+            /* if success {
+                  lineage.parse(step); // use get class and then do it form there
+                  // this would work probably better minimal change
+                  // would leave textdirectives unchanged
+            }
+             */
           }
           if(newRecords.size() > 0) {
             results.addAll(newRecords);

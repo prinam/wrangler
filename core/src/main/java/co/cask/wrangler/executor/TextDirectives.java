@@ -19,6 +19,7 @@ package co.cask.wrangler.executor;
 import co.cask.wrangler.api.DirectiveParseException;
 import co.cask.wrangler.api.Directives;
 import co.cask.wrangler.api.Step;
+import co.cask.wrangler.executor.DirectivesLineage;
 import co.cask.wrangler.steps.IncrementTransientVariable;
 import co.cask.wrangler.steps.SetTransientVariable;
 import co.cask.wrangler.steps.column.ChangeColCaseNames;
@@ -92,7 +93,6 @@ import co.cask.wrangler.steps.transformation.Trim;
 import co.cask.wrangler.steps.transformation.LeftTrim;
 import co.cask.wrangler.steps.transformation.RightTrim;
 
-
 import co.cask.wrangler.steps.writer.WriteAsCSV;
 import co.cask.wrangler.steps.writer.WriteAsJsonMap;
 import org.apache.commons.lang.StringEscapeUtils;
@@ -120,6 +120,10 @@ public class TextDirectives implements Directives {
   // directives for wrangling.
   private String[] directives;
 
+  // for column lineage
+  // Should be passed in this is temp for error messages...
+  private DirectivesLineage lineages = new DirectivesLineage(null);
+
   // Usage Registry
   private final UsageRegistry usageRegistry = new UsageRegistry();
 
@@ -146,6 +150,7 @@ public class TextDirectives implements Directives {
    */
   private List<Step> parse() throws DirectiveParseException {
     List<Step> steps = new ArrayList<>();
+    Step currStep;
 
     // Split directive by EOL
     int lineno = 1;
@@ -192,7 +197,9 @@ public class TextDirectives implements Directives {
             case "column": {
               String column = getNextToken(tokenizer, "set column", "column-name", lineno);
               String expr = getNextToken(tokenizer, "\n", "set column", "jexl-expression", lineno);
-              steps.add(new Expression(lineno, directive, column, expr));
+              currStep = new Expression(lineno, directive, column, expr);
+              steps.add(currStep);
+              lineages.parse(currStep, "setcolumn", column);
             }
             break;
 
@@ -200,7 +207,9 @@ public class TextDirectives implements Directives {
             case "columns": {
               String columns = getNextToken(tokenizer, "\n", "set columns", "name1, name2, ...", lineno);
               String cols[] = columns.split(",");
-              steps.add(new Columns(lineno, directive, Arrays.asList(cols)));
+              currStep = new Columns(lineno, directive, Arrays.asList(cols));
+              steps.add(currStep);
+              lineages.parse(currStep, "setcolumns", cols);
             }
             break;
           }
@@ -211,7 +220,9 @@ public class TextDirectives implements Directives {
         case "rename": {
           String oldcol = getNextToken(tokenizer,  command, "old", lineno);
           String newcol = getNextToken(tokenizer, command, "new", lineno);
-          steps.add(new Rename(lineno, directive, oldcol, newcol));
+          currStep = new Rename(lineno, directive, oldcol, newcol);
+          steps.add(currStep);
+          lineages.parse(currStep, "rename", new String[]{oldcol, newcol});
         }
         break;
 
@@ -219,14 +230,19 @@ public class TextDirectives implements Directives {
         case "set-type": {
           String col = getNextToken(tokenizer,  command, "col", lineno);
           String type = getNextToken(tokenizer, command, "type", lineno);
-          steps.add(new SetType(lineno, directive, col, type));
+          currStep = new SetType(lineno, directive, col, type);
+          steps.add(currStep);
+          lineages.parse(currStep, "set-type", col);
         }
         break;
 
         // drop <column>[,<column>]
         case "drop": {
-          String colums = getNextToken(tokenizer, command, "column", lineno);
-          steps.add(new Drop(lineno, directive, Arrays.asList(colums.split(","))));
+          String columns = getNextToken(tokenizer, command, "column", lineno);
+          String cols[] = columns.split(",");
+          currStep = new Drop(lineno, directive, Arrays.asList(cols));
+          steps.add(currStep);
+          lineages.parse(currStep, "drop", cols);
         }
         break;
 
@@ -246,28 +262,36 @@ public class TextDirectives implements Directives {
             }
             delimiter = StringEscapeUtils.unescapeJava(delimiter.substring(start + 1, end));
           }
-          steps.add(new Merge(lineno, directive, col1, col2, dest, delimiter));
+          currStep = new Merge(lineno, directive, col1, col2, dest, delimiter);
+          steps.add(currStep);
+          lineages.parse(currStep, "merge", new String[]{col1, col2, dest});
         }
         break;
 
         // uppercase <col>
         case "uppercase": {
           String col = getNextToken(tokenizer, command, "col", lineno);
-          steps.add(new Upper(lineno, directive, col));
+          currStep = new Upper(lineno, directive, col);
+          steps.add(currStep);
+          lineages.parse(currStep, "uppercase", col);
         }
         break;
 
         // lowercase <col>
         case "lowercase": {
           String col = getNextToken(tokenizer, command, "col", lineno);
-          steps.add(new Lower(lineno, directive, col));
+          currStep = new Lower(lineno, directive, col);
+          steps.add(currStep);
+          lineages.parse(currStep, "lowercase", col);
         }
         break;
 
         // titlecase <col>
         case "titlecase": {
           String col = getNextToken(tokenizer, command, "col", lineno);
-          steps.add(new TitleCase(lineno, directive, col));
+          currStep = new TitleCase(lineno, directive, col);
+          steps.add(currStep);
+          lineages.parse(currStep, "titlecase", col);
         }
         break;
 
@@ -305,7 +329,9 @@ public class TextDirectives implements Directives {
         case "filter-row-if-not-matched": {
           String column = getNextToken(tokenizer, command, "column", lineno);
           String pattern = getNextToken(tokenizer, "\n", command, "regex", lineno);
-          steps.add(new RecordRegexFilter(lineno, directive, column, pattern, false));
+          currStep = new RecordRegexFilter(lineno, directive, column, pattern, false)
+          steps.add(currStep);
+          lineages.parse(currStep, "filter-row-if-not-matched", column);
         }
         break;
 
@@ -327,7 +353,9 @@ public class TextDirectives implements Directives {
         case "set-variable": {
           String column = getNextToken(tokenizer, command, "column", lineno);
           String expression = getNextToken(tokenizer, "\n", command, "expression", lineno);
-          steps.add(new SetTransientVariable(lineno, directive, column, expression));
+          currStep = new SetTransientVariable(lineno, directive, column, expression)
+          steps.add(currStep);
+          lineages.parse(currStep, "set-variable", column);
         }
         break;
 
@@ -336,7 +364,9 @@ public class TextDirectives implements Directives {
           String column = getNextToken(tokenizer, command, "column", lineno);
           String value = getNextToken(tokenizer, command, "value", lineno);
           String expression = getNextToken(tokenizer, "\n", command, "expression", lineno);
-          steps.add(new IncrementTransientVariable(lineno, directive, column, value, expression));
+          currStep = new IncrementTransientVariable(lineno, directive, column, value, expression);
+          steps.add(currStep);
+          lineages.parse(currStep, "increment-variable", column);
         }
         break;
 
@@ -344,14 +374,18 @@ public class TextDirectives implements Directives {
         case "mask-number": {
           String column = getNextToken(tokenizer, command, "column", lineno);
           String mask = getNextToken(tokenizer, command, "pattern", lineno);
-          steps.add(new MaskNumber(lineno, directive, column, mask));
+          currStep = new MaskNumber(lineno, directive, column, mask)
+          steps.add(currStep);
+          lineages.parse(currStep, "mask-number", column);
         }
         break;
 
         // mask-shuffle <column>
         case "mask-shuffle": {
           String column = getNextToken(tokenizer, command, "column", lineno);
-          steps.add(new MaskShuffle(lineno, directive, column));
+          currStep = new MaskShuffle(lineno, directive, column)
+          steps.add(currStep);
+          lineages.parse(currStep, "mask-shuffle", column);
         }
         break;
 
@@ -359,7 +393,9 @@ public class TextDirectives implements Directives {
         case "format-date": {
           String column = getNextToken(tokenizer, command, "column", 1);
           String format = getNextToken(tokenizer, "\n", command, "format", lineno);
-          steps.add(new FormatDate(lineno, directive, column, format));
+          currStep = new FormatDate(lineno, directive, column, format);
+          steps.add(currStep);
+          lineages.parse(currStep, "format-date", column);
         }
         break;
 
@@ -367,7 +403,9 @@ public class TextDirectives implements Directives {
         case "format-unix-timestamp": {
           String column = getNextToken(tokenizer, command, "column", lineno);
           String dstDatePattern = getNextToken(tokenizer, "\n", command, "destination-format", lineno);
-          steps.add(new FormatDate(lineno, directive, column, dstDatePattern));
+          currStep = new FormatDate(lineno, directive, column, dstDatePattern);
+          steps.add(currStep);
+          lineages.parse(currStep, "format-unix-timestamp", column);
         }
         break;
 

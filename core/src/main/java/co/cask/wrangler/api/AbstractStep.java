@@ -18,6 +18,8 @@ package co.cask.wrangler.api;
 
 import co.cask.wrangler.api.annotations.PublicEvolving;
 
+import java.util.List;
+
 /**
  * An abstract class for {@link Step} with added debugging capabilities.
  */
@@ -30,6 +32,9 @@ public abstract class AbstractStep implements Step<Record, Record> {
     this.lineno = lineno;
     this.detail = detail;
   }
+
+  public abstract List<String> getSourceColumns();
+  public abstract List<String> getSinkColumns();
 
   @Override
   public String toString() {
